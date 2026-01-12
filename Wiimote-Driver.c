@@ -8,7 +8,8 @@
 static const struct hid_device_id wiimote_devices[] = {
 	{ HID_BLUETOOTH_DEVICE(0x057e, 0x0306) }, /* Original Wii remote */
 	{ HID_BLUETOOTH_DEVICE(0x057e, 0x0330) }, /* Wii U compatible wiimote */
-}
+	{ } /* empty entry signifies end of array to kernel */
+};
 
 MODULE_DEVICE_TABLE(hid, wiimote_devices);
 
@@ -55,7 +56,7 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 	wiimote = devm_kzalloc(&hdev->dev, sizeof(*wiimote), GFP_KERNEL);
 
 	wiimote->hdev = hdev;
-	hid_Set_drvdata(hdev, wiimote);
+	hid_set_drvdata(hdev, wiimote);
 
 	ret = hid_parse(hdev);
 	if (ret) {
@@ -114,7 +115,7 @@ static void my_wiimote_remove(struct hid_device *hdev)
 
 static struct hid_driver my_wiimote_driver = {
 	.name = "hid-my-wiimote",
-	.id_table = my_wiimote_devices,
+	.id_table = wiimote_devices,
 	.probe = my_wiimote_probe,
 	.remove = my_wiimote_remove,
 	.raw_event = my_wiimote_raw_event,
