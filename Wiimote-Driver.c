@@ -39,18 +39,90 @@ static int my_wiimote_raw_event(struct hid_device *hdev, struct hid_report *repo
 	return 1;
 }
 
+static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id *id)
+{
+	struct my_wiimote *wiimote;
+	int ret;
+	
+	/* sanity check */
+	if (strstr(hdev->name, "Nintendo"))
+		return -ENODEV;
 
-static int __init my_init(void) {
-	printk("Wiimote-Driver - Hello from the linux kernel!\n");
+	/* devm_kzalloc does a lot of heavy lifting for memory management
+	 * with this the memory is tied to the lifetime of the device
+	 * it is also zero filled
+	 */
+	wiimote = devm_kzalloc(&hdev->dev, sizeof(*wiimote), GFP_KERNEL);
+
+	wiimote->hdev = hdev;
+	hid_Set_drvdata(hdev, wiimote);
+
+	ret = hid_parse(hdev);
+	if (ret) {
+		hid_err(hdev, "Wiimote-Driver - hid_parse failed\n");
+		return ret;
+	}
+
+	/* start HID device telling kernel that it is HID raw - let us
+	 * handle the input ourselves without trying to claim it first
+	 */
+	ret = hid_hw_start(hdev, HID_CONNECT_HIDRAW);
+	if (ret) {
+		hid_err(hdev, "Wiimote-Driver - hid_hw_start failed\n");
+		return ret;
+	}
+	
+	/* create an input device for the wiimote. this is what the user
+	 * will interact with, and so it is important to fill in data to
+	 * not look generic
+	 */
+	wiimote->input = devm_input_allocate_device(&hdev->dev);
+	if (!wiimote->input)
+		return -ENOMEM;
+
+	wiimote->input->name = "My Wiimote";
+	wiimote->input->phys = hdev->phys;
+	wiimote->input->id.bustype = BUS_BLUETOOTH;
+	wiimote->input->id.vendor = 0x057e;
+	wiimote->input->id.product = hdev->product;
+	wiimote->input->id.version = hdev->version;
+	
+	/* input system must know the buttons that can potentially
+	 * come up on this device up from, so they are declared here
+	 */
+	__set_bit(EV_KEY, wiimote->input->evbit);
+	__set_bit(KEY_A, wiimote->input->keybit);
+	__set_bit(KEY_B, wiimote->input->keybit);
+	__set_bit(KEY_HOME, wiimote->input->keybit);
+	
+	/* register input device here */
+	ret = input_register_device(wiimote->input);
+	if (ret) {
+		hid_err(hdev, "Wiimote-Driver - input_register_device failed\n");
+		return ret;
+	}
+
+	hid_info(hdev, "Wiimote-Driver - Eductional wiimote driver attached\n");
 	return 0;
 }
 
-static void __exit my_exit(void) {
-	printk("Wiimote-Driver - Goodbye from the linux kernel!\n");
+static void my_wiimote_remove(struct hid_device *hdev)
+{
+	hid_hw_stop(hdev);
+	hid_info(hdev, "Wiimote-Driver - my wiimote driver has been removed\n");
 }
 
-module_init(my_init);
-module_exit(my_exit);
+static struct hid_driver my_wiimote_driver = {
+	.name = "hid-my-wiimote",
+	.id_table = my_wiimote_devices,
+	.probe = my_wiimote_probe,
+	.remove = my_wiimote_remove,
+	.raw_event = my_wiimote_raw_event,
+};
+
+module_hid_driver(my_wiimote_driver);
+
+/* Module metadata */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Joshua Lowe");
