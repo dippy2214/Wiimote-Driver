@@ -5,21 +5,46 @@
 #include <linux/string.h>
 #include <linux/init.h>
 
+#include "Wiimote-Driver-Flags.c"
+
 static const struct hid_device_id wiimote_devices[] = {
-	{ HID_BLUETOOTH_DEVICE(0x057e, 0x0306) }, /* Original Wii remote */
-	{ HID_BLUETOOTH_DEVICE(0x057e, 0x0330) }, /* Wii U compatible wiimote */
+	{ HID_BLUETOOTH_DEVICE(0x057E, 0x0306) }, /* Original Wii remote */
+	{ HID_BLUETOOTH_DEVICE(0x057E, 0x0330) }, /* Wii U compatible wiimote */
 	{ } /* empty entry signifies end of array to kernel */
 };
 
 MODULE_DEVICE_TABLE(hid, wiimote_devices);
 
-struct my_wiimote {
+static struct my_wiimote {
 	struct hid_device *hdev;
 	struct input_dev *input;
 };
 
+static int wiimote_send(struct hid_device *hdev, u8 *buffer, int count)
+{
+	hid_info(hdev, "Wiimote-Driver - Sending message to wiimote!\n");
+	u8 *buf;
+	int ret;
+
+	if (!hdev->ll_driver->output_report)
+		return -ENODEV;
+
+	/* copy data to new buffer as good practice in case old buffer gets reused */	
+	buf = kmemdup(buffer, count, GFP_KERNEL);
+
+	if (!buf)
+		return -ENOMEM;
+
+	ret = hid_hw_output_report(hdev, buf, count);
+
+	kfree(buf);
+	return ret;
+}
+
 static int my_wiimote_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size)
 {
+	hid_info(hdev, "Wiimote-Driver - Raw event triggered!\n");
+
 	struct my_wiimote *wiimote = hid_get_drvdata(hdev);
 	u16 buttons;
 
@@ -30,9 +55,16 @@ static int my_wiimote_raw_event(struct hid_device *hdev, struct hid_report *repo
 	/* bit shifting to put button data into buttons u16 */
 	buttons = (data[1] << 8) | data[2];
 
-	input_report_key(wiimote->input, KEY_A, !(buttons & 0x0008));
-	input_report_key(wiimote->input, KEY_B, !(buttons & 0x0004));
-	input_report_key(wiimote->input, KEY_HOME, !(buttons & 0x0080));
+	input_report_key(wiimote->input, BTN_A, !(buttons & BITMASK_A));
+	input_report_key(wiimote->input, BTN_B, !(buttons & BITMASK_B));
+	input_report_key(wiimote->input, BTN_MODE, !(buttons & BITMASK_HOME));
+	input_report_key(wiimote->input, BTN_START, !(buttons & BITMASK_START));
+	input_report_key(wiimote->input, BTN_SELECT, !(buttons & BITMASK_SELECT));
+	
+	input_report_key(wiimote->input, BTN_DPAD_UP, !(buttons & BITMASK_DPAD_UP));
+	input_report_key(wiimote->input, BTN_DPAD_DOWN, !(buttons & BITMASK_DPAD_DOWN));
+	input_report_key(wiimote->input, BTN_DPAD_LEFT, !(buttons & BITMASK_DPAD_LEFT));
+	input_report_key(wiimote->input, BTN_DPAD_RIGHT, !(buttons & BITMASK_DPAD_RIGHT));
 	
 	input_sync(wiimote->input);
 	
@@ -42,11 +74,12 @@ static int my_wiimote_raw_event(struct hid_device *hdev, struct hid_report *repo
 
 static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
+	hid_info(hdev, "Wiimote-Driver - probe function active");
 	struct my_wiimote *wiimote;
 	int ret;
 	
 	/* sanity check */
-	if (strstr(hdev->name, "Nintendo"))
+	if (!strstr(hdev->name, "Nintendo"))
 		return -ENODEV;
 
 	/* devm_kzalloc does a lot of heavy lifting for memory management
@@ -54,6 +87,8 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 	 * it is also zero filled
 	 */
 	wiimote = devm_kzalloc(&hdev->dev, sizeof(*wiimote), GFP_KERNEL);
+	if (!wiimote)
+		return -ENOMEM;
 
 	wiimote->hdev = hdev;
 	hid_set_drvdata(hdev, wiimote);
@@ -92,9 +127,16 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 	 * come up on this device up from, so they are declared here
 	 */
 	__set_bit(EV_KEY, wiimote->input->evbit);
-	__set_bit(KEY_A, wiimote->input->keybit);
-	__set_bit(KEY_B, wiimote->input->keybit);
-	__set_bit(KEY_HOME, wiimote->input->keybit);
+	__set_bit(BTN_A, wiimote->input->keybit);
+	__set_bit(BTN_B, wiimote->input->keybit);
+	__set_bit(BTN_MODE, wiimote->input->keybit);
+	__set_bit(BTN_START, wiimote->input->keybit);
+	__set_bit(BTN_SELECT, wiimote->input->keybit);
+
+	__set_bit(BTN_DPAD_UP, wiimote->input->keybit);
+	__set_bit(BTN_DPAD_DOWN, wiimote->input->keybit);
+	__set_bit(BTN_DPAD_LEFT, wiimote->input->keybit);
+	__set_bit(BTN_DPAD_RIGHT, wiimote->input->keybit);
 	
 	/* register input device here */
 	ret = input_register_device(wiimote->input);
@@ -103,7 +145,16 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 		return ret;
 	}
 
-	hid_info(hdev, "Wiimote-Driver - Eductional wiimote driver attached\n");
+	hid_info(hdev, "Wiimote-Driver - Wiimote driver attached to wiimote!\n");
+	
+	u8 report_mode_message[5] = {
+		0x12,
+		0x00,
+		0x30,
+	};
+	int report_size = sizeof(*report_mode_message)/sizeof(report_mode_message[0]);
+	wiimote_send(hdev, report_mode_message, report_size);
+
 	return 0;
 }
 
