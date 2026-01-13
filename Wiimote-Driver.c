@@ -41,6 +41,20 @@ static int wiimote_send(struct hid_device *hdev, u8 *buffer, int count)
 	return ret;
 }
 
+static int set_wiimote_report_mode(struct hid_device *hdev, u8 report_mode)
+{
+	int ret;
+	u8 report_mode_message[3] = {
+		0x12,
+		0x00,
+		report_mode,
+	};
+
+	int report_size = sizeof(*report_mode_message)/sizeof(report_mode_message[0]);
+	ret = wiimote_send(hdev, report_mode_message, report_size);
+	return ret;
+}
+
 static int my_wiimote_raw_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size)
 {
 	hid_info(hdev, "Wiimote-Driver - Raw event triggered!\n");
@@ -147,13 +161,7 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 
 	hid_info(hdev, "Wiimote-Driver - Wiimote driver attached to wiimote!\n");
 	
-	u8 report_mode_message[5] = {
-		0x12,
-		0x00,
-		0x30,
-	};
-	int report_size = sizeof(*report_mode_message)/sizeof(report_mode_message[0]);
-	wiimote_send(hdev, report_mode_message, report_size);
+	set_wiimote_report_mode(hdev, REPORT_BUTTONS);
 
 	return 0;
 }
