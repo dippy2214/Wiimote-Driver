@@ -50,6 +50,7 @@ static int wiimote_send(struct hid_device *hdev, u8 *buffer, int count)
 	return ret;
 }
 
+/* helper function to set wiimote led lights */
 static int set_wiimote_leds(struct hid_device *hdev, u8 light)
 {
 	struct my_wiimote *wiimote = hid_get_drvdata(hdev);
