@@ -23,3 +23,9 @@ const u16 BITMASK_DPAD_UP = 0x0800;
 const u16 BITMASK_DPAD_DOWN = 0x0400;
 const u16 BITMASK_DPAD_LEFT = 0x0200;
 const u16 BITMASK_DPAD_RIGHT = 0x0100;
+
+/* LED light bitmasks */
+const u8 LED_1 = 0x10;
+const u8 LED_2 = 0x20;
+const u8 LED_3 = 0x40;
+const u8 LED_4 = 0x80;

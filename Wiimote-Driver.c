@@ -24,6 +24,7 @@ struct my_wiimote {
 	struct hid_device *hdev;
 	struct input_dev *input;
 	u8 report_mode;
+	u8 leds;
 	struct mutex lock;
 };
 
@@ -49,6 +50,30 @@ static int wiimote_send(struct hid_device *hdev, u8 *buffer, int count)
 	return ret;
 }
 
+static int set_wiimote_leds(struct hid_device *hdev, u8 light)
+{
+	struct my_wiimote *wiimote = hid_get_drvdata(hdev);
+	int ret;
+
+	if (!(light & (LED_1 | LED_2 | LED_3 | LED_4)) && light != 0)
+	{
+		hid_err(hdev, "Wiimote-Driver - invalid LED set");
+		return -EINVAL;	
+	}
+
+	mutex_lock(&wiimote->lock);
+	wiimote->leds = light;
+	mutex_unlock(&wiimote->lock);
+
+	u8 led_message[2] = {
+		0x11,
+		light,
+	};	
+	int message_size = sizeof(led_message);
+	ret = wiimote_send(hdev, led_message, message_size);
+	return ret;
+}
+
 /* Helper function to set wiimote report mode */
 static int set_wiimote_report_mode(struct hid_device *hdev, u8 report_mode)
 {
@@ -63,11 +88,39 @@ static int set_wiimote_report_mode(struct hid_device *hdev, u8 report_mode)
 		report_mode,
 	};
 
-	int report_size = sizeof(*report_mode_message)/sizeof(report_mode_message[0]);
-	ret = wiimote_send(hdev, report_mode_message, report_size);
+	int message_size = sizeof(report_mode_message);
+	ret = wiimote_send(hdev, report_mode_message, message_size);
 	return ret;
 }
 
+/* sysfs function for wiimote leds show*/
+static ssize_t sysfs_leds_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct my_wiimote *wiimote = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "0x%02x\n", wiimote->leds);
+}
+
+/* sysfs function for wiimote leds store */
+static ssize_t sysfs_leds_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct my_wiimote *wiimote = dev_get_drvdata(dev);
+	unsigned int leds;
+	int ret;
+	ret = kstrtouint(buf, 0, &leds);
+	if (ret)
+		return ret;
+	
+	/* set_wiimote_leds handles its own input validation */
+	ret = set_wiimote_leds(wiimote->hdev, leds);
+	if (ret < 0)
+	{
+		return ret;
+	}
+	return count;
+}
+
+DEVICE_ATTR_RW(sysfs_leds);
 /* sysfs function for wiimote report mode show*/
 static ssize_t sysfs_report_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -162,7 +215,6 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 	wiimote->hdev = hdev;
 	hid_set_drvdata(hdev, wiimote);
 
-	wiimote->report_mode = REPORT_BUTTONS;
 	mutex_init(&wiimote->lock);
 
 	ret = hid_parse(hdev);
@@ -217,6 +269,12 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 		return ret;
 	}
 	
+	/* create sysfs entries here */	
+	ret = device_create_file(&hdev->dev, &dev_attr_sysfs_leds);
+	if (ret) {
+		hid_err(hdev, "failed to create leds sysfs file\n");
+		return ret;
+	}
 	ret = device_create_file(&hdev->dev, &dev_attr_sysfs_report_mode);
 	if (ret) {
 		hid_err(hdev, "failed to create report_mode sysfs file\n");
@@ -224,8 +282,8 @@ static int my_wiimote_probe(struct hid_device *hdev, const struct hid_device_id 
 	}
 
 	hid_info(hdev, "Wiimote-Driver - Wiimote driver attached to wiimote!\n");	
-
-	set_wiimote_report_mode(hdev, wiimote->report_mode);
+	set_wiimote_leds(hdev, LED_1);
+	set_wiimote_report_mode(hdev, REPORT_BUTTONS);
 
 	return 0;
 }
