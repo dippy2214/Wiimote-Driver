@@ -112,7 +112,6 @@ static ssize_t sysfs_leds_store(struct device *dev, struct device_attribute *att
 	if (ret)
 		return ret;
 	
-	/* set_wiimote_leds handles its own input validation */
 	ret = set_wiimote_leds(wiimote->hdev, leds);
 	if (ret < 0)
 	{
